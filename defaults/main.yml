@@ -1,1 +1,5 @@
 ---
+kubelet_ver: 1.26.1-00
+kubeadm_ver: 1.26.1-00
+kubectl_ver: 1.26.1-00
+network_kube: 10.244.0.0/16

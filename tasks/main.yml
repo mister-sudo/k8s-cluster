@@ -1,1 +1,156 @@
 ---
+- name: Remove swapfile from /etc/fstab
+  mount:
+    name: "{{ item }}"
+    fstype: swap
+    state: absent
+  with_items:
+    - swap
+    - none
+
+- name: Disable swap
+  command: swapoff -a
+  when: ansible_swaptotal_mb > 0
+
+# - name: uuid
+#   shell: rm -rf /etc/machine-id && dbus-uuidgen --ensure=/etc/machine-id
+
+- name: Install software
+  apt:
+    name: "{{item}}"
+    state: present
+    update_cache: true
+  loop:
+    - curl
+    - apt-transport-https
+    - git
+    - ca-certificates
+    - curl
+    - gnupg
+    - lsb-release
+    - mc
+    - nano
+    - software-properties-common
+    - docker
+    - docker.io
+
+- name: Enable and start docker
+  ansible.builtin.systemd:
+    name: docker
+    state: started
+    enabled: true
+
+- name: Create docker daemon template
+  ansible.builtin.template:
+    src: daemon.json.j2
+    dest: /etc/docker/daemon.json
+    mode: 0644
+  notify: "restart docker"
+
+- name: Add kernel module
+  community.general.modprobe:
+    name: "{{item}}"
+    state: present
+  loop:
+  - br_netfilter
+  - overlay
+
+- name: Add sysctl settings
+  ansible.posix.sysctl:
+    name: "{{item}}"
+    value: '1'
+    state: present
+  loop:
+  - net.bridge.bridge-nf-call-ip6tables
+  - net.bridge.bridge-nf-call-iptables
+  - net.ipv4.ip_forward
+
+- name: Import google apt key
+  apt_key:
+    url: https://packages.cloud.google.com/apt/doc/apt-key.gpg
+    state: present
+
+- name: Add specified repository
+  ansible.builtin.apt_repository:
+    repo: deb https://apt.kubernetes.io/ kubernetes-xenial main
+    filename: /etc/apt/sources.list.d/kubernetes.list
+    state: present
+
+- name: Install software
+  apt:
+    name: "{{item}}"
+    state: present
+    update_cache: true
+  loop:
+    - kubelet={{ kubelet_ver }}
+    - kubeadm={{ kubeadm_ver}}
+
+- name: Hold kubernetes software
+  ansible.builtin.dpkg_selections:
+    name: "{{item}}"
+    selection: hold
+  loop:
+    - kubelet
+    - kubeadm
+
+- block: #for master hosts
+
+    - name: Install software
+      apt:
+        name: kubectl={{ kubectl_ver }}
+        state: present
+        update_cache: true
+
+    - name: Populate /etc/environment
+      lineinfile:
+        path: "/etc/environment"
+        state: present
+        line: "KUBECONFIG=/etc/kubernetes/admin.conf"
+
+    # - name: Initialize the cluster
+    #   shell: kubeadm init --pod-network-cidr={{ network_kube }} >> cluster_initialized.txt
+    #   args:
+    #     chdir: $HOME
+    #     creates: cluster_initialized.txt
+    #   when: inventory_hostname == groups["master"][0]
+
+    # - name: create .kube directory
+    #   file:
+    #     path: $HOME/.kube
+    #     state: directory
+    #     mode: 0755
+
+    # - name: copy admin.conf to user's kube config
+    #   copy:
+    #     src: /etc/kubernetes/admin.conf
+    #     dest: $HOME/.kube/config
+    #     remote_src: yes
+    #   when: inventory_hostname == groups["master"][0]
+
+    # - name: install Pod network
+    #   shell: kubectl apply -f https://raw.githubusercontent.com/coreos/flannel/a70459be0084506e4ec919aa1c114638878db11b/Documentation/kube-flannel.yml >> pod_network_setup.txt
+    #   args:
+    #     chdir: $HOME
+    #     creates: pod_network_setup.txt
+
+  when: "'master' in group_names"
+
+
+#     - name: conf  ###ручками и ниже тоже
+#       shell: kubeadm config images pull
+#
+#     - name: conf
+#       shell: kubeadm init --pod-network-cidr=10.244.0.0/16 || true
+#
+#     - name: conf
+#       shell: mkdir -p ~/.kube
+#
+#     - name: conf
+#       shell: cp -i /etc/kubernetes/admin.conf ~/.kube/config
+#
+#     - name: conf
+#       shell: chown $(id -u):$(id -g) ~/.kube/config
+#
+#     - name: conf
+#       shell: kubectl apply -f https://raw.githubusercontent.com/coreos/flannel/master/Documentation/kube-flannel.yml
+# ####нету про присоединение воркеров

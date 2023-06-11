@@ -1,1 +1,7 @@
----
+galaxy_info:
+  role_name: k8s-cluster
+  author: Mister Sudo (mister-sudo@yandex.ru)
+  description: Role for k8s install
+  company:
+  license: BSD
+dependencies: []
