@@ -11,7 +11,7 @@
     state: restarted
   listen: "restart containerd"
 
-- name: Kubectl apply -f kube-flannel.yml
+- name: Kube flannel
   shell: cd ~ && kubectl apply -f kube-flannel.yml
-  listen: "kubectl apply"
+  listen: "kube flannel"
   when: inventory_hostname == groups["master"][0]

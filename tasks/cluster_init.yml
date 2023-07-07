@@ -1,40 +1,35 @@
 ---
 - block:
 
-    # - name: Copy cluster config
-    #   ansible.builtin.template:
-    #     src: cluster.yml.j2
-    #     dest: ~/cluster.yml
-    #     owner: root
-    #     group: root
-    #     mode: '0644'
-    #   when: inventory_hostname == groups["master"][0]
-
-    # - name: Check that the /etc/kubernetes/manifests/kube-apiserver.yaml exists
-    #   stat:
-    #     path: /etc/kubernetes/manifests/kube-apiserver.yaml
-    #   register: cluster_existance
-    #   when: inventory_hostname == groups["master"][0]
-
     - name: Pull images
       shell: kubeadm config images pull >> ~/pull_images.log
       args:
         creates: ~/pull_images.log
 
-    # - name: Print var
-    #   ansible.builtin.debug:
-    #     msg: var {{ cluster_existance }}
-
     - name: Init cluster
-      ansible.builtin.shell: kubeadm init --pod-network-cidr={{ podSubnet }} --control-plane-endpoint={{ controlPlaneEndpoint }}:6443 --upload-certs >> ~/kubeadm_init.log
+      ansible.builtin.shell: kubeadm init --pod-network-cidr={{ podSubnet }} --control-plane-endpoint={{ controlPlaneEndpoint }}:6443 --upload-certs >> init_cluster.log
       args:
-        creates: ~/kubeadm_init.log
+        creates: init_cluster.log
       register: kube_init
+      run_once: true
       when: inventory_hostname == groups["master"][0]
 
     - name: Sleep for continue with play
       ansible.builtin.wait_for:
         timeout: "{{ sleep_time }}"
+
+    - name: Set kubeadm certificate key
+      set_fact:
+        kubeadm_certificate_key: "{{ item | regex_search('--certificate-key ([^ ]+)','\\1') }}"
+      with_items: "{{ kube_init.stdout_lines | default([]) }}"
+      when:
+        - (item | trim) is match('.*--certificate-key.*')
+        - kube_init is defined
+
+    - name: Check that the /etc/kubernetes/kubelet.conf exists
+      stat:
+        path: /etc/kubernetes/kubelet.conf
+      register: kubelet_existance
 
     - name: Create ~/.kube directory
       file:
@@ -57,29 +52,15 @@
         group: root
         mode: '0644'
       when: inventory_hostname == groups["master"][0]
-      notify: kubectl apply
+      notify: kube flannel
 
     - meta: flush_handlers
 
-    - name: Set kubeadm certificate key
-      set_fact:
-        kubeadm_certificate_key: "{{ item | regex_search('--certificate-key ([^ ]+)','\\1') }}"
-      with_items: "{{ kube_init.stdout_lines | default([]) }}"
-      when:
-        - (item | trim) is match('.*--certificate-key.*')
-        - kube_init is defined
-
-    - name: Check that the /etc/kubernetes/kubelet.conf exists
-      stat:
-        path: /etc/kubernetes/kubelet.conf
-      register: kubelet_existance
-
     - name: Token create
-      ansible.builtin.shell: kubeadm token create >> ~/token_create.log
+      ansible.builtin.shell: kubeadm token create
       register: kube_token
-      args:
-        creates: ~/token_create.log
-      when: inventory_hostname == groups["master"][0]
+      run_once: true
+      when: inventory_hostname == groups['master'][0]
 
     - name: Upload control plane certificates
       ansible.builtin.shell: kubeadm init phase upload-certs --upload-certs
@@ -87,11 +68,10 @@
       changed_when: false
       when: inventory_hostname == groups['master'][0]
 
-    - name: Set fact 'kubeadm_certificate_key' for later use
+    - name: set fact 'kubeadm_certificate_key' for later use
       set_fact:
         kubeadm_certificate_key: "{{ hostvars[groups.master.0]['kubeadm_upload_cert']['stdout_lines'][-1] | trim }}"
       run_once: true
-      when: inventory_hostname == groups["master"][0]
 
     - name: Calculate kubeadm CA cert hash
       ansible.builtin.shell: set -o pipefail && openssl x509 -pubkey -in /etc/kubernetes/pki/ca.crt | openssl rsa -pubin -outform der 2>/dev/null | openssl dgst -sha256 -hex | sed 's/^.* //'
@@ -103,10 +83,10 @@
       when: inventory_hostname == groups["master"][0]
 
     - name: Join all master to cluster
-      ansible.builtin.shell: kubeadm join {{ controlPlaneEndpoint }}:6443 --token {{ kube_token.stdout }} --discovery-token-ca-cert-hash sha256:{{ kubeadm_ca_hash.stdout }} --control-plane --certificate-key {{ kubeadm_certificate_key }} >> join_master.log
+      ansible.builtin.shell: kubeadm join {{ controlPlaneEndpoint }}:6443 --token {{ kube_token.stdout }} --discovery-token-ca-cert-hash sha256:{{ kubeadm_ca_hash.stdout }} --control-plane --certificate-key {{ kubeadm_certificate_key }} >> ~/join_cluster.log
       args:
-        creates: ~/join_master.log
-      when: not kubelet_existance.stat.exists
+        creates: ~/join_cluster.log
+      when: inventory_hostname != groups["master"][0]
 
     - name: Sleep for continue with play
       ansible.builtin.wait_for:
@@ -129,61 +109,3 @@
         creates: ~/join_worker.log
 
   when: "'worker' in group_names"
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-  #   - name: Pull images
-  #     shell: kubeadm config images pull >> pull_images.txt
-  #     args:
-  #       creates: pull_images.txt
-  #     when: "'master' in group_names"
-
-  #   - name: Initialize the cluster
-  #     shell: kubeadm init --pod-network-cidr={{ network_kube }} >> cluster_initialized.txt
-  #     args:
-  #       creates: cluster_initialized.txt
-  #     when: inventory_hostname == groups["master"][0]
-
-  #   - name: create .kube directory
-  #     file:
-  #       path: $HOME/.kube
-  #       state: directory
-  #       mode: '0755'
-
-  #   - name: copy admin.conf to user's kube config
-  #     copy:
-  #       src: /etc/kubernetes/admin.conf
-  #       dest: $HOME/.kube/config
-  #       remote_src: yes
-  #     when: inventory_hostname == groups["master"][0]
-
-  #   - name: Create ~/kubectl
-  #     ansible.builtin.file:
-  #       path: ~/kubectl
-  #       state: directory
-  #       owner: root
-  #       group: root
-  #       mode: '0644'
-
-  #   - name: Kubectl apply
-  #     ansible.builtin.template: src={{ item.src }} dest={{ item.dest }}
-  #     with_items:      
-  #       - { src: 'kube-flannel.yml.j2',  dest: '~/kubectl/kube-flannel.yml' }
-  #       - { src: 'metrics-server.yml.j2', dest: '~/kubectl/metrics-server.yml' }
-  #     notify: kubectl apply
-  #     when: inventory_hostname == groups["master"][0]
-
-  #   - meta: flush_handlers
