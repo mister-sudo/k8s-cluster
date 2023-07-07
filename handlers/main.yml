@@ -1,6 +1,17 @@
 ---
-- name: Restart docker
+- name: Restart keepalived
   service:
-    name: docker
+    name: keepalived
     state: restarted
-  listen: "restart docker"
+  listen: "restart keepalived"
+
+- name: Restart containerd
+  service:
+    name: containerd
+    state: restarted
+  listen: "restart containerd"
+
+- name: Kubectl apply -f kube-flannel.yml
+  shell: cd ~ && kubectl apply -f kube-flannel.yml
+  listen: "kubectl apply"
+  when: inventory_hostname == groups["master"][0]

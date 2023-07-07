@@ -1,0 +1,36 @@
+---
+- name: Remove swap
+  mount:
+    name: "{{ item }}"
+    fstype: swap
+    state: absent
+  with_items:
+    - swap
+    - none
+
+- name: Disable swap
+  command: swapoff -a
+  when: ansible_swaptotal_mb > 0
+
+- name: uuid
+  shell: (rm -rf /etc/machine-id && dbus-uuidgen --ensure=/etc/machine-id) >> dbus-uuidgen.txt
+  args:
+    creates: dbus-uuidgen.txt
+
+- name: Add kernel module
+  community.general.modprobe:
+    name: "{{item}}"
+    state: present
+  loop:
+  - br_netfilter
+  - overlay
+
+- name: Add sysctl settings
+  ansible.posix.sysctl:
+    name: "{{item}}"
+    value: '1'
+    state: present
+  loop:
+  - net.bridge.bridge-nf-call-ip6tables
+  - net.bridge.bridge-nf-call-iptables
+  - net.ipv4.ip_forward

@@ -1,0 +1,57 @@
+---
+- name: Install common software
+  apt:
+    name: "{{item}}"
+    state: present
+    update_cache: true
+  loop:
+    - apt-transport-https
+    - git
+    - ca-certificates
+    - curl
+    - gnupg
+    - lsb-release
+    - mc
+    - nano
+    - software-properties-common
+    - containerd.io
+
+- name: Enable and start containerd
+  ansible.builtin.systemd:
+    name: containerd
+    state: started
+    enabled: true
+
+- name: Install containerd config
+  ansible.builtin.template:
+    src: config.toml.j2
+    dest: /etc/containerd/config.toml
+    owner: root
+    group: root
+    mode: '0644'
+  notify: restart containerd
+
+- meta: flush_handlers
+
+- name: Install kubectl
+  apt:
+    name: kubectl={{ kubectl_ver }}
+    state: present
+    update_cache: true
+
+- name: Install kubelet & kubeadm
+  apt:
+    name: "{{item}}"
+    state: present
+    update_cache: true
+  loop:
+    - kubelet={{ kubelet_ver }}
+    - kubeadm={{ kubeadm_ver}}
+
+- name: Hold kubernetes software
+  ansible.builtin.dpkg_selections:
+    name: "{{item}}"
+    selection: hold
+  loop:
+    - kubelet
+    - kubeadm
