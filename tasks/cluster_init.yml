@@ -68,7 +68,7 @@
       changed_when: false
       when: inventory_hostname == groups['master'][0]
 
-    - name: set fact 'kubeadm_certificate_key' for later use
+    - name: Set fact 'kubeadm_certificate_key' for later use
       set_fact:
         kubeadm_certificate_key: "{{ hostvars[groups.master.0]['kubeadm_upload_cert']['stdout_lines'][-1] | trim }}"
       run_once: true
@@ -92,7 +92,7 @@
       ansible.builtin.wait_for:
         timeout: "{{ sleep_time }}"
 
-    - name: Copy admin.conf to user's kube config
+    - name: Copy admin.conf to others master
       copy:
         src: /etc/kubernetes/admin.conf
         dest: ~/.kube/config
@@ -101,11 +101,8 @@
 
   when: "'master' in group_names"
 
-- block:
-
-    - name: Join all worker to cluster
-      ansible.builtin.shell: kubeadm join {{ controlPlaneEndpoint }}:6443 --token {{ kube_token.stdout }} --discovery-token-ca-cert-hash sha256:{{ kubeadm_ca_hash.stdout }} >> join_worker.log
-      args:
-        creates: ~/join_worker.log
-
+- name: Join all worker to cluster
+  ansible.builtin.shell: kubeadm join {{ controlPlaneEndpoint }}:6443 --token {{ kube_token.stdout }} --discovery-token-ca-cert-hash sha256:{{ kubeadm_ca_hash.stdout }} >> ~/join_worker.log
+  args:
+    creates: ~/join_worker.log
   when: "'worker' in group_names"
